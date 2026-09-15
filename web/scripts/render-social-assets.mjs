@@ -51,6 +51,7 @@ if (!skipIcons) {
       const webp = dest.replace(/\.png$/i, ".webp");
       if (
         dest.includes("vocalinux-") ||
+        dest.includes("icon-") ||
         dest.endsWith("/vocalinux.png")
       ) {
         toWebp(dest, webp);
