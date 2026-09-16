@@ -175,11 +175,15 @@ ENGINE_MODELS = {
     ],  # Parakeet TDT 0.6B int8 bundles
     "faster_whisper": [
         "tiny",
+        "tiny.en",
         "base",
+        "base.en",
         "small",
+        "small.en",
         "medium",
+        "medium.en",
         "large-v3",
-    ],  # faster-whisper models mirror OpenAI Whisper sizes
+    ],  # catalog sizes plus English-only .en variants (no large-v3.en)
     "remote_api": [],  # Remote API does not need local models
 }
 
@@ -5407,6 +5411,11 @@ class SettingsDialog(Gtk.Dialog):
                 recommended_model = parakeet.RECOMMENDED_MODEL
             elif engine == "faster_whisper":
                 recommended_model, _ = get_recommended_faster_whisper_model()
+                recommended_model, _ = _recommended_faster_whisper_variant_for_language(
+                    recommended_model,
+                    "",
+                    self.language_combo.get_active_id() or self.language,
+                )
             else:
                 recommended_model, _ = _get_recommended_vosk_model()
 
@@ -5441,18 +5450,26 @@ class SettingsDialog(Gtk.Dialog):
                     if smallest_model is None:
                         smallest_model = size
 
-                    self.model_combo.append(size.capitalize(), display_text)
+                    # whisper.cpp already appends the catalog id; Faster Whisper
+                    # ids include dots (`small.en`) which capitalize() mangles.
+                    combo_id = size if engine == "faster_whisper" else size.capitalize()
+                    self.model_combo.append(combo_id, display_text)
 
             # Determine which model to select
             saved_model = saved_model_for_engine.lower()
             valid_models = [m.lower() for m in ENGINE_MODELS.get(engine, [])]
 
             if saved_model in valid_models:
-                model_to_set = saved_model.capitalize()
+                selected = saved_model
             elif downloaded_models:
-                model_to_set = downloaded_models[0].capitalize()
+                selected = downloaded_models[0]
             else:
-                model_to_set = smallest_model.capitalize() if smallest_model else "Small"
+                selected = smallest_model
+
+            if engine == "faster_whisper":
+                model_to_set = selected or "tiny"
+            else:
+                model_to_set = selected.capitalize() if selected else "Small"
 
             logger.info(f"Setting active model to: {model_to_set}")
 

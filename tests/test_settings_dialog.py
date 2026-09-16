@@ -635,6 +635,20 @@ class TestSettingsDialogHelperFunctions(unittest.TestCase):
         self.assertIn("large-v3-turbo-q5_0", WHISPERCPP_MODEL_INFO)
         self.assertNotIn("small.en-tdrz", WHISPERCPP_MODEL_INFO)
 
+    def test_faster_whisper_picker_lists_english_only_catalog_ids(self):
+        """Settings must list the same .en ids the tray can persist."""
+        from vocalinux.ui.settings_dialog import ENGINE_MODELS, FASTER_WHISPER_MODEL_INFO
+
+        fw = ENGINE_MODELS["faster_whisper"]
+        for model_id in ("tiny.en", "base.en", "small.en", "medium.en"):
+            self.assertIn(model_id, fw)
+            self.assertIn(model_id, FASTER_WHISPER_MODEL_INFO)
+        self.assertIn("large-v3", fw)
+        self.assertNotIn("large-v3.en", fw)
+        self.assertNotIn("large-v3.en", FASTER_WHISPER_MODEL_INFO)
+        for model_id in fw:
+            self.assertIn(model_id, FASTER_WHISPER_MODEL_INFO)
+
     def test_model_display_name_large_v3_turbo(self):
         """Test display labels for whisper.cpp model variants."""
         from vocalinux.ui.settings_dialog import _model_display_name

@@ -115,6 +115,7 @@ class TestRecommendedModelForEngine:
 
         assert result.model_id == "small.en"
         assert "CUDA GPU" in result.reason
+        assert result.model_id in settings_dialog.ENGINE_MODELS["faster_whisper"]
 
     def test_faster_whisper_non_english_keeps_the_multilingual_model(self, settings_dialog):
         with patch.object(
