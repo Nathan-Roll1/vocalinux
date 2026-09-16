@@ -89,3 +89,13 @@ def test_unused_downloads_are_a_sibling_expander_not_nested_in_advanced():
     assert "self.advanced_box.pack_start(self.unused_models_group" not in src
     assert "self.unused_expander" in src
     assert "_make_expander_card" in src
+
+
+def test_unused_island_visibility_tracks_nested_group_during_search():
+    """Search hides leftover-model rows; the expander header must follow them."""
+    src = inspect.getsource(settings_dialog)
+    search_body = src.split("def _on_search_changed(self, entry)")[1].split("def ")[0]
+    snapshot_body = src.split("def _snapshot_search_baseline")[1].split("def ")[0]
+    assert "self.unused_island.set_visible" in search_body
+    assert "self.unused_models_group.get_visible()" in search_body
+    assert "unused_island" in snapshot_body

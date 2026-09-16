@@ -18,6 +18,7 @@ UX Design Notes:
 """
 
 import logging
+import math
 import os
 import re
 import threading
@@ -326,6 +327,20 @@ def _recommended_whispercpp_variant_for_language(
     if _language_is_english(language_id) and english_variant in WHISPERCPP_MODEL_INFO:
         return english_variant, reason
 
+    return recommended_model, reason
+
+
+def _recommended_faster_whisper_variant_for_language(
+    recommended_model: str,
+    reason: str,
+    language_id: str,
+) -> tuple[str, str]:
+    """Adjust a Faster Whisper hardware recommendation to the selected language."""
+    english_variant = (
+        recommended_model if recommended_model.endswith(".en") else f"{recommended_model}.en"
+    )
+    if _language_is_english(language_id) and english_variant in FASTER_WHISPER_MODEL_INFO:
+        return english_variant, reason
     return recommended_model, reason
 
 
@@ -1460,7 +1475,7 @@ def _get_recommended_whisper_model() -> tuple:
     try:
         import psutil
 
-        ram_gb = psutil.virtual_memory().total // (1024**3)
+        ram_gb = math.ceil(psutil.virtual_memory().total / (1024**3))
 
         # Check for CUDA - suppress warnings during detection
         has_cuda = False
@@ -1520,7 +1535,7 @@ def _get_recommended_vosk_model() -> tuple:
     try:
         import psutil
 
-        ram_gb = psutil.virtual_memory().total // (1024**3)
+        ram_gb = math.ceil(psutil.virtual_memory().total / (1024**3))
 
         # VOSK models are CPU-based, so we recommend based on RAM and disk space
         if ram_gb >= 4:
@@ -1566,7 +1581,10 @@ def recommended_model_for_engine(
         reason = parakeet.RECOMMENDED_REASON
         size_mb = parakeet.PARAKEET_MODEL_INFO.get(model_id, {}).get("size_mb", 0)
     elif engine == "faster_whisper":
-        model_id, reason = get_recommended_faster_whisper_model()
+        recommended_model, reason = get_recommended_faster_whisper_model()
+        model_id, reason = _recommended_faster_whisper_variant_for_language(
+            recommended_model, reason, language
+        )
         size_mb = FASTER_WHISPER_MODEL_INFO.get(model_id, {}).get("size_mb", 0)
     else:
         # Remote API transcribes server-side; there is nothing to download.
@@ -2338,7 +2356,7 @@ class SettingsDialog(Gtk.Dialog):
         page_names = {page.name for page in self._pages}
         self._search_previous_page = visible_page if visible_page in page_names else "dictation"
 
-        baseline = {"rows": {}, "groups": {}, "extras": {}}
+        baseline = {"rows": {}, "groups": {}, "extras": {}, "islands": {}}
         for page in self._pages:
             for group in page.groups:
                 visible = group.get_visible()
@@ -2354,6 +2372,10 @@ class SettingsDialog(Gtk.Dialog):
                     baseline["rows"][row] = row.get_visible()
             for extra in page.extras:
                 baseline["extras"][extra] = extra.get_visible()
+        # Nested unused_models_group is the searchable unit; the expander card
+        # that wraps it is not a PreferencesGroup, so record it separately.
+        if self.unused_island is not None:
+            baseline["islands"][self.unused_island] = self.unused_island.get_visible()
         self._search_baseline = baseline
 
     def _restore_search_baseline(self):
@@ -2438,6 +2460,12 @@ class SettingsDialog(Gtk.Dialog):
                     page.update_badge_label.hide()
                 page.match_count_label.hide()
                 page.sidebar_row.set_sensitive(False)
+
+        # collect_children finds unused_models_group inside unused_island, so the
+        # expander card is not an extra. Hide the header when the nested group
+        # has no search hits; restore puts the island back from the snapshot.
+        if self.unused_island is not None and hasattr(self, "unused_models_group"):
+            self.unused_island.set_visible(self.unused_models_group.get_visible())
 
         if first_match_page is not None:
             self.sidebar_listbox.select_row(first_match_page.sidebar_row)
@@ -3289,6 +3317,10 @@ class SettingsDialog(Gtk.Dialog):
         self.unused_models_group = PreferencesGroup(
             keywords=("delete", "remove", "unused", "disk", "storage", "downloaded"),
         )
+        # Title lives on the expander card. Copy it onto the nested group so
+        # search matches "Unused downloads" without drawing a second header.
+        self.unused_models_group.title = "Unused downloads"
+        self.unused_models_group.description = "Downloaded, but not the one in use"
         # The island is the card; this group only holds rows for search/delete.
         self.unused_models_group.get_style_context().remove_class("preferences-group")
 
@@ -6131,13 +6163,24 @@ class SettingsDialog(Gtk.Dialog):
         Simple mode deliberately steers the existing widgets instead of writing the
         configuration itself, so applying, downloading and the info card keep going
         through exactly one code path.
+
+        Faster Whisper and Parakeet stay selected: language still follows the
+        simple questions, but the engine is not forced to whisper.cpp. Other
+        engines are steered onto whisper.cpp and get the full size/variant derive.
         """
         language = self._simple_decoding_language()
         priority = self.simple_priority_combo.get_active_id() or BALANCED
 
-        self.engine_combo.set_active_id("whisper_cpp")
+        engine = self._get_selected_engine()
+        if engine not in ("faster_whisper", "parakeet"):
+            self.engine_combo.set_active_id("whisper_cpp")
+            engine = "whisper_cpp"
+
         self._set_combo_active_id_or_first(self.language_combo, language)
         self.language = language
+
+        if engine != "whisper_cpp":
+            return
 
         recommended, _ = self._get_recommended_whispercpp_model_for_language()
         size = size_for_priority(get_whispercpp_model_size(recommended), priority)
@@ -6378,6 +6421,11 @@ class SettingsDialog(Gtk.Dialog):
             info = FASTER_WHISPER_MODEL_INFO[model_name]
             is_downloaded = is_faster_whisper_model_downloaded(model_name)
             recommended, reason = get_recommended_faster_whisper_model()
+            recommended, reason = _recommended_faster_whisper_variant_for_language(
+                recommended,
+                reason,
+                self.language_combo.get_active_id() or self.language,
+            )
             extra_info = f"Parameters: {info['params']}"
         else:
             self.model_info_card.hide()
