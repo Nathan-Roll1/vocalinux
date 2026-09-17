@@ -1,6 +1,7 @@
 """Optional Orukeet catalog and publisher-manifest verification."""
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -50,3 +51,13 @@ def test_missing_manifest_or_license_keeps_model_unavailable(tmp_path, monkeypat
     (tmp_path / "NOTICE.md").touch()
     (tmp_path / "manifest.json").unlink()
     assert not models.is_model_downloaded(MODEL)
+
+
+@pytest.mark.parametrize(
+    "content",
+    ["{", "null", "{}", '{"files": null}', '{"files": [{}]}', '{"files": [1]}'],
+)
+def test_malformed_release_manifest_is_a_verification_failure(tmp_path: Path, content: str) -> None:
+    (tmp_path / "manifest.json").write_text(content, encoding="utf-8")
+    with pytest.raises(ChecksumError, match="Malformed"):
+        models.validate_release_manifest(MODEL, str(tmp_path))

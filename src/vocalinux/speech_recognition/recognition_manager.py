@@ -2199,6 +2199,8 @@ class SpeechRecognitionManager:
                 os.rename(temp_file, dest_path)
                 temp_file = None
 
+            self._validate_parakeet_release_manifest(self.model_size, model_dir)
+
         # RequestException=Exception under the test mocks; do not catch
         # Timeout separately (it is not a real exception type there).
         except requests.exceptions.RequestException as e:
@@ -2220,10 +2222,20 @@ class SpeechRecognitionManager:
         finally:
             self._download_progress_callback = outer_callback
 
-        parakeet.validate_release_manifest(self.model_size, model_dir)
         logger.info("Parakeet model downloaded successfully")
         if self._download_progress_callback:
             self._download_progress_callback(1.0, 0, "Complete!")
+
+    @staticmethod
+    def _validate_parakeet_release_manifest(model_size: str, model_dir: str) -> None:
+        """Discard failed publisher metadata so retries can reuse verified weights."""
+        try:
+            parakeet.validate_release_manifest(model_size, model_dir)
+        except ChecksumError:
+            filename = parakeet.PARAKEET_MODEL_INFO[model_size].get("manifest")
+            if filename:
+                os.remove(os.path.join(model_dir, filename))
+            raise
 
     @staticmethod
     def _parakeet_model_is_verified(model_size: str, model_dir: str) -> bool:
@@ -2251,7 +2263,7 @@ class SpeechRecognitionManager:
                 logger.info("Removed the unverified model file; it will be downloaded again")
         if verified:
             try:
-                parakeet.validate_release_manifest(model_size, model_dir)
+                SpeechRecognitionManager._validate_parakeet_release_manifest(model_size, model_dir)
             except (ChecksumError, OSError, ValueError) as error:
                 logger.error("Parakeet release manifest verification failed: %s", error)
                 return False
@@ -2323,7 +2335,7 @@ class SpeechRecognitionManager:
             logger.error("Please install it with 'pip install sherpa-onnx'")
             self.state = RecognitionState.ERROR
             raise
-        except (FileNotFoundError, RuntimeError, OSError) as e:
+        except (ChecksumError, FileNotFoundError, RuntimeError, OSError) as e:
             logger.error(f"Failed to initialize Parakeet engine: {e}", exc_info=True)
             self.state = RecognitionState.ERROR
             raise

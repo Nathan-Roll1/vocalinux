@@ -172,19 +172,22 @@ def validate_release_manifest(model_name: str, model_dir: str) -> None:
     filename = PARAKEET_MODEL_INFO[model_name].get("manifest")
     if not filename:
         return
-    with open(os.path.join(model_dir, filename), encoding="utf-8") as source:
-        manifest = json.load(source)
-    published = {record["path"]: record for record in manifest["files"]}
-    for name in model_files(model_name):
-        if name == filename:
-            continue
-        expected = expected_for(manifest_key(model_name, name))
-        record = published.get(name)
-        if (
-            expected is None
-            or record is None
-            or expected.algo != "sha256"
-            or expected.digest != record["sha256"]
-            or expected.size != record["bytes"]
-        ):
-            raise ChecksumError(f"Release manifest disagrees with pinned Parakeet file: {name}")
+    try:
+        with open(os.path.join(model_dir, filename), encoding="utf-8") as source:
+            manifest = json.load(source)
+        published = {record["path"]: record for record in manifest["files"]}
+        for name in model_files(model_name):
+            if name == filename:
+                continue
+            expected = expected_for(manifest_key(model_name, name))
+            record = published.get(name)
+            if (
+                expected is None
+                or record is None
+                or expected.algo != "sha256"
+                or expected.digest != record["sha256"]
+                or expected.size != record["bytes"]
+            ):
+                raise ChecksumError(f"Release manifest disagrees with pinned Parakeet file: {name}")
+    except (KeyError, TypeError, ValueError) as error:
+        raise ChecksumError(f"Malformed Parakeet release manifest: {filename}") from error
